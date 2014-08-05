@@ -590,6 +590,25 @@ voucher, the device resends this with a null signature.
 
 * None of these user management PDUs have `data`.
 
+## PDU Trace ##
+
+The service shall implement a PDU facility accessible to administrators with
+this `TraceReq`.
+
+    TraceReq = Version Id Cmd Arg
+    Version = uint8{ 0 }
+    Id = uint8{ TraceReqId }
+    Cmd = uint8		// 0 - Filter, 1 - Unfilter, 2 - Flush, 3 - Resize
+    Arg = uint8
+
+Where,
+
+    Cmd
+      0 Filter PDU with the Id given in `Arg`.
+      1 Unfilter PDU with the Id given in `Arg`.
+      2 Flush trace ring into data of acknowlegment.
+      3 Resize ring to `Arg` entries.
+
 # References #
 1. http://tools.ietf.org/html/rfc6455
 2. http://ed25519.cr.yp.to/
