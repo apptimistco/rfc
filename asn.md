@@ -584,7 +584,7 @@ voucher, the device resends this with a null signature.
 
     UserVouchReq = Version Id PubEncr Signature
     Version = uint8{ 0 }
-    Id = uint8{ UserVouchReq }
+    Id = uint8{ UserVouchReqId }
     Key = [32]uint8
     Signature = [64]uint8{ ed25519(secAuth, Key) }
 
