@@ -1,25 +1,24 @@
 # App-Server Protocol #
-This RFC describes the protocols between an Apptimist App and its cloud
-server(s).
+This RFC describes the protocol between an Apptimist Social Networking App and
+its front-end servers.
 
 <!--
          1         2         3         4         5         6         7         8
 12345678901234567890123456789012345678901234567890123456789012345678901234567890
 -->
 
-**Status:** This is in development and may likely be rambling thoughts for a
-while.
+**Status:** proposed
 
 ## Description ##
-The Apptimist App-Server protocol is an exchange of encapsulated data units
-between the App and Server along with a few, server resident access control
+The Apptimist Social Network (ASN) protocol is an exchange of encapsulated data
+units between an App and Server along with a few, server resident access control
 files. The Apps themselves extend this protocol with further definition of the
 encapsulated `message` and other server resident data files.
 
 ## Notation ##
-In this document, *"device"* refers to the App running on the user's IOS or
-Android device whereas *"service"* refers to programs running on an Apptimist
-(potentially cloud based) server.
+In this document, *"device"* refers to the App running on IOS or Android device
+whereas *"service"* refers to programs running on an Apptimist (potentially
+cloud based) server.
 
 This document describes a protocol data unit (PDU) as concatenated components.
 
@@ -34,39 +33,49 @@ Numeric literals may be C like decimal or "0x" prefaced hexadecimal digits.
 
 Types are described as:
 
-    [ "[" [ number ] "]" ] u{8,16,32,64} [ "{" value "}" ]`
+    [ "[" [ number ] "]" ] uint{8,16,32,64} [ "{" value "}" ]`
+or
+    [ "[" [ number ] "]" ] float{32,64} [ "{" value "}" ]`
 
 The elemental component type is an 8, 16, 32, or 64-bit, big-endian, unsigned
-integer with keyword u8, u16, u32 and u64 respectively.
+integer with keywords `uint8`, `uint16`, `uint32` and `uint64` respectively.  A
+`float` is either a 32 or 64 bit, big-endian, IEEE-754 floating point number.
 
 An array component has a bracket-bound numbered preface indicating a sequence
 of a single element type. Successive bracket-bound number prefaces indicate
 multi-dimensional arrays. The number may be absent indicating a possible zero
 length array defined by the number in another component.  Examples:
 
-    to = [32]u8
-    recipients = u8
-    recipientList = [][32]u8
+    to = [32]uint8
+    recipients = uint8
+    recipientList = [][32]uint8
 
 A composite literal component appends a brace-bond list of composite elements.
 Examples:
 
-    version = u8{1}
-    nonce = [24]u8{ id seq }
-    id = [64]u8
-    seq = u64
-    nameLen = u8{ name.Length() }
-    name []u8
+    version = uint8{1}
+    nonce = [24]uint8{ id seq }
+    id = [64]uint8
+    seq = uint64
+    nameLen = uint8{ name.Length() }
+    name = []uint8
+    lat = float64{37.82022}
+    lon = float64{-122.47732}
+
+## Users ##
+Apptimist Social Networks have three types of users: actual, forum, and bridge.
+As the name implies, an actual user is a member or administrator of the social
+network. A forum or event is created by and actual or administrative user to
+distribute messages to all subscribers. A bridge may also be created by a
+member or administrator to multi-cast messages to all signed-in subscribers.
 
 ## WebSockets ##
-The Apptimist protocol runs through non-secure WebSockets described in
-(http://tools.ietf.org/html/rfc6455). These are Web vs. TCP or UDP Sockets to
-provide the most flexible service through carrier proxy servers and enterprise
-firewalls. Also, these are non-secure HTTP sockets instead of the SSL secured
-HTTPS because the Apptimist protocol includes (http://ed25519.cr.yp.to/)
-authenticated signatures and (http://nacl.cr.yp.to/box.html) authenticated
-encryption to provide a user assigned web-of-trust rather than a centralized
-certificate authority.
+ASN runs through non-secure WebSockets described in [RFC-6455][1] . These are
+Web vs. TCP or UDP Sockets to provide the most flexible service through carrier
+proxy servers and enterprise firewalls. Also, these are non-secure HTTP sockets
+instead of the SSL secured HTTPS because ASN includes [ED25519][2] authenticated
+signatures and [NaCL][3]  authenticated encryption to provide a user assigned
+web-of-trust rather than a centralized certificate authority.
 
 ### URI ###
 
@@ -77,462 +86,516 @@ format.
 
     host = app ".apptimist.co"
 
-Where `app` is the service name; for example, "siren".
+Where `app` is the service name; for example, "`siren`".
 
-After login, the service may be redirected to a client subset `host`; for
-example, "alpha.siren.apptimist.co". Some service features may direct the
-client to establish simultaneous WebSockets to shared services; for example,
-"video-conference.apptimist.co"
+Some service features may direct the client to establish simultaneous
+WebSocket to another service engine; for example,
+* "`marks.siren.apptimist.co`"
+* "`bridge.siren.apptimist.co`"
+* "`fe1.siren.apptimist.co`"
+* "`fe2.siren.apptimist.co`"
 
 The `port` component is optional; the default is 80, but may be different for
 testing.
 
-The `path` component for most services is simply a slash prefaced service
-name; i.e "/siren".
+The `path` component for most services is simply a slash prefaced,
+WebSocket protocol name; e.g. `/ws/asn`.
 
 The `query` component is a 64 digit, hexadecimal string representing the
-device ephemeral, 32-octet, public encryption key.
+device ephemeral, 32-octet, public encryption key; e.g.
+"`key=1234567890123456789012345678901234567890123456789012345678901234`"
 
-## PDU ##
-The Apptimist PDU has separately encrypted header and data components.
-Generally, the data is encrypted by the originator with the key of the
-recipient; whereas the header is encrypted with the immediate sender/receiver
-key pair and may be re-encrypted at each hop of the server network.
+#### Example ####
+
+    ws://siren.apptimist.co/ws/asn?key=1234567890123456789012345678901234567890123456789012345678901234
+
+## Cryptography ##
+The ASN PDU has separately encrypted header and data components.
+
+The App uses an ephemeral key pair for the header component cryptography. These
+keys are generated before each connection with with the public key encoded
+within the GET request query string as described above. The App loads user's key
+pair stored within the IOS cloud for the data component cryptography. The App
+registers the user's public key with the `UserAddReq` described below.
+
+The service uses a proprietary key pair for the header component cryptography.
+It uses the keys of a service specific, administration user for the data
+component cryptography.
+
+## Format ##
+Each ASN PDU has this format:
 
     pdu = headerLen dataLen eHeader eData
 
-    headerLen = u32{ eHeader.Length() }
-    dataLen = u32{ eData.Length() }
+    headerLen = uint32{ eHeader.Length() }
+    dataLen = uint32{ eData.Length() }
 
     eHeader = crypto_box(header, headerNonce, rcvrPubEncrKey, sndrSecEncrKey)
 
-    header = []u8{ version type ... }
-    vsersion = u8{ 1 }
-    type = u8
+    header = []uint8{ version id ... }
+    vsersion = uint8{ 0 }
+    id = uint8
 
-    headerNonce = [24]u8{ headerNoncePrefix seq }
-    headerNoncePrefix = [22]u8{ dataNonce[:22] }
-    seq = u16
+    headerNonce = [24]uint8{ headerNoncePrefix seq }
+    headerNoncePrefix = [22]uint8{ dataNonce[:22] }
+    seq = uint16
 
-    rcvrPubEncrKey = [32]u8
-    sndrSecEncrKey = [32]u8
+    rcvrPubEncrKey = [32]uint8
+    sndrSecEncrKey = [32]uint8
 
     eData = crypto_box(data, dataNonce, toPubEncrKey, fromSecEncrKey)
-    dataNonce = [24]u8{ ed25519(serviceSecAuthKey, servicePubEncrKey)[:24] }
+    dataNonce = [24]uint8{ ed25519(serviceSecAuthKey, servicePubEncrKey)[:24] }
 
-    toPubEncrKey = [32]u8
-    fromSecEncrKey = [32]u8
+    toPubEncrKey = [32]uint8
+    fromSecEncrKey = [32]uint8
 
-Every header begins with `version` and `type` components. As indicated, the
-most recent `version` is 1. Future versions will be numeric increments and,
+Every header begins with `version` and `id` components. As indicated, the
+most recent `version` is 0. Future versions will be numeric increments and,
 when possible, may be backwards compatible.
 
 The `seq` component of the `headerNonce` is a sequential counter following the
-NaCL *"Security model"* whereby this increments by 2 for each PDU sent between
-socket endpoints for the connection duration.  The side with the
-lexicographically smaller public key sends its first pdu with a 1 `seq`, 3 on
-the second pdu, 5 on the third, etc.; meanwhile, the lexicographically larger
+NaCL ["Security model"][4] whereby this increments by 2 for each PDU sent
+between socket endpoints for the connection duration.  The side with the
+lexicographically smaller public key sends its first PDU with a 1 `seq`, 3 on
+the second PDU, 5 on the third, etc.; meanwhile, the lexicographically larger
 public key peer uses `seq` 2, 4, 6, etc.
 
-The `headerNoncePrefix` is initially the first 22 bytes of `dataNonce`.
-
-**TBD** whether we then reset the `headerNoncePrefix` from a signed PIN.
+The `headerNoncePrefix` is the first 22 bytes of `dataNonce`.
 
 The `dataNonce` is the first 24 bytes of the service self signed public
 encryption key.
 
-### Types ###
+## States ##
+The ASN protocol has very few states.
+
+1. `Open`, prior to an acknowledged `LoginReq`
+2. `Logged-in`, after an acknowledged `LoginReq`
+3. `Suspended`, after an acknowledged `PauseReq` and before `ResumeReq`
+4. `Quitting`, awaiting `QuitReq` acknowledgment
+5. `Close`, received `QuitReq` acknowledgment and terminated connection
+
+
+## Identifiers ##
+To support flexible protocol evolution, the App and Service use lookup
+tables to map PDU identifier and error codes. Here are the most recent
+identifiers:
+<!-- go test -v -run Ids github.com/apptimistco/asn/pdu -->
+                              Version
+                                 0
+       0.                RawId   0
+       1.                AckId   1
+       2.               EchoId   2
+       3.        FileLockReqId   3
+       4.        FileReadReqId   4
+       5.      FileRemoveReqId   5
+       6.       FileWriteReqId   6
+       7.            HeadRptId   7
+       8.            MarkReqId   8
+       9.            MarkRptId   9
+      10.         MessageReqId  11
+      11.    SessionLoginReqId  12
+      12.    SessionPauseReqId  13
+      13.     SessionQuitReqId  14
+      14. SessionRedirectReqId  15
+      15.   SessionResumeReqId  16
+      16.           TraceReqId  17
+      17.         UserAddReqId  18
+      18.         UserDelReqId  19
+      19.      UserSearchReqId  20
+      20.       UserVouchReqId  21
+
+## Acknowledgment ##
+
+Each `Req` suffixed request sent by either device or service shall be
+acknowledged with this `Ack`.
+
+    Ack = Version Id Req Err Desc
+    Version = uint8{ 0 }
+    Id = uint8{ AckId }
+    Req = uint8
+    Err = uint8
+
+Where `Req` is the identifier of the request and `Err` is one of these error
+codes.
+<!-- go test -v -run Errs github.com/apptimistco/asn/pdu -->
+                              Version
+                                 0
+       0.              Success   0
+       1.            DeniedErr   1
+       2.           FailureErr   2
+       3.          IlFormatErr   3
+       4.      IncompatibleErr   4
+       5.          RedirectErr   5
+       6.             ShortErr   6
+       7.        UnexpectedErr   7
+       8.           UnknownErr   8
+       9.       UnsupportedErr   9
+
+A negative acknowledgment shall include a UTF-8 character string in the data
+portion of the PDU which describes the error. For `RedirectErr`, this the
+redirected URL for the requested service.
+
+The positive acknowledgment of `FileLockReq` and `FileReadReq` shall include
+data containing the requested data.
+
+The `UserSearchReq` acknowledgment includes data containing a list of the user
+keys whose name or `FBuid` matches the given regular expression.
+
+## Echo ##
+
+The device or service may send an `Echo` request in ether `Open` or `Login`
+states to diagnose and benchmark connectivity. The `Echo` receiver shall
+return an `Echo` with a non-zero `Reply` along with the original data.
+
+    Echo = Version Id Reply
+    Version = uint8{ 0 }
+    Id = uint8{ EchoId }
+    Reply = uint8
+
+## Files ##
+
+The device manipulates files with these requests.
+
+    LockReq = Version Id Name
+    Version = uint8{ 0 }
+    Id = uint8{ FileLockReqId }
+    Name = []uint8
+
+    ReadReq = Version Id Name
+    Version = uint8{ 0 }
+    Id = uint8{ FileReadReqId }
+    Name = []uint8
+
+    WriteReq = Version Id Name
+    Version = uint8{ 0 }
+    Id = uint8{ FileWriteReqId }
+    Name = []uint8
+
+The successful `LockReq` and `ReadReq` acknowledgment includes the requested
+file contents as `data`. This `data` is encrypted with the secret key of the
+service and the public key of the requesting user.  Similarly, the data`
+attached to the `WriteReq`is encrypted with the secret user and public service
+keys.  All or portions of the encrypted data may itself be encrypted as
+explained in the *Messaging* below.
+
+The `LockReq` also prevents another user or session from writing until a
+`WriteReq` to the named file from the locking session.
+
+### Reserved Files ###
+
+The service stores the following reserved files in directories named
+`KEY/asn`; where `KEY` is the 64 symbol, hexadecimal encoded string
+representing the subject user's public key that uniquely identifies them
+within the service.
+
+    KEY/asn:
+        author
+        editors
+        mark.yaml
+        messages/head
+        moderators
+        subscribers
+        subscriptions
+        user.yaml
+
+For efficiency, the service may make `KEY` hierarchical like GIT objects but
+this is beyond to scope of this document.
+
+Before acknowledging `UserAddReq`, the service records the relevant
+components, along with originating author, in the reserved file named
+`user.yaml`.  Only administrave users may write this file thereafter.
+The file contains mapped strings like these.
+
+    Name: "jane doe"
+    FBuid: "jane.doe@facebook.com"
+    FBtoken: "..."
+    Auth: "..."
+
+If the `UserAddReq` was issued within an established session (see below) the
+service records the 32 byte public of that session user in the reservd file
+named `author`.
+
+The author may assign one or more editors by adding their user keys to the
+reserved `editors` file.
+
+Only the author and editors are permitted to write files in the subject user
+directory.
+
+The author and editors may also assign one or more (including themselves) as
+forum and bridge moderators by ading their keys to the reserved `moderators`
+file.
 
-    LOGIN_PDU            1
-    REDIRECT_PDU         2
-    NEW_PDU              3
-    DEL_PDU              4
-    MESSAGE_PDU          5
-    TRUNCATE_PDU         6
-    PAUSE_PDU            7
-    RESUME_PDU           8
-    VOUCH_PDU            9
-    VOUCHERS_PDU        10
-    SEARCH_BY_NAME_PDU  11
-    SEARCH_BY_UID_PDU   12
-    SEARCH_BY_KEY_PDU   13
-    USER_PDU            14
-    READ_PDU            15
-    LOCK_PDU            16
-    WRITE_PDU           17
-    REMOVE_PDU          18
+The author and editors subscribe users to a forum or bridge by adding the
+subscriber's key to the `subscribers` file. The service reflects changes to
+this file through the subscriber's `subscriptions` file. So, an author or
+editor adding `U` user to `F` forums `F/subscribers` will result in the
+service adding `F` to `U/subscriptions`.  The service prevents any other
+modification of `subscriptions`.
 
-### login ###
-The device sends this PDU to restart service for an existing user.
+The author and editors may statically mark a forum or bridge location by
+writing a `mark.yaml` file with this mapped float format.
 
-    loginHeader = version type userPubEncrKey signature max head
+    Lat: 37.619002
+    Lon: -122.374843
+    Ele: 100
 
-    version = u8{ 1 }      // see above
-    type = u8{ LOGIN_PDU }
+Where `Lat[itude]` and `Lon[gitude]` are in degrees and `Ele[vation]` is in
+meters.
 
-    userPubEncrKey = [32]u8
-    signature = [64]u8{ ed25519(userSecAuthKey, userPubEncrKey) }
+The service records the keys of checked-in users of a forum or bridge in the
+`attendance` file.
 
-    max = u16
-    head = [64]u8
+The service stores all non-bridge messages in files named by the SHA512
+identifier within the reserved sub-directory named `messages/`. The service
+writes the 64 byte identifier of the most recent message to the file
+`messages/head`. The device may truncate messages with an empty data
+`WriteReq` although the service will maintain it's identifier of the previous
+message.
 
-The `head` is the last message received by the device. A zero value `head`
-requests that the service to send all messages.
+The service lists the keys of all validate vouching users in the `references`
+file. This may not be modfied in anyother way other than with the `VouchReq`.
 
-The message history may be limited by `max`, whereby a non-zero `max` governs
-the number of queued messages the service searches backward for device's given
-`head`.
+The service prevents addition of any other files to the reserved `KEY/asn`
+directory.
 
-* This PDU has no `data`.
 
-### redirect ###
-The service may send this PDU at anytime to direct the device to immediately
-terminate the current WebSocket and reconnect to the given URI.
+## Location ##
 
-    redirectHeader = version type uriLen uri
+The device registers it's location or scan for nearby users with this
+`MarkReq`.
 
-    version = u8{ 1 }      // see above
-    type = u8{ REDIRECT_PDU }
+    MarkReq = Version Id Lat Lon Z Cmd
+    Version = uint8{ 0 }
+    Id = uint8{ MarkReqId }
+    Lat = float64	// Lat[itude] in degrees
+    Lon = float64	// Lon[gitude] in degrees
+    Z = float64		// Elevation or Radius in meters
+    Cmd = uint8
 
-    uriLen = u16{ uri.Length() }
-    uri = []u8
+Possible `Cmd` values:
 
-* This PDU has no `data`.
+    0	// Set user's anonymous location
+    1   // Unset user's anonymous location
+    2	// Check-in user's public location
+    3	// Check-out user's public location
+    4	// Scan nearby users
+    5	// Stop report of nearby users
 
-### new ###
-The device sends a `new` PDU to create a service account for the given user.
-They must then follow with a `login` PDU to start service.
+After acknowledging a scan `MarkReq`, the service will continually send this
+`MarkRpt` of users within or leaving the location of interest.
 
-An existing, logged-in user may also send a `new` PDU to create an event or
-forum.
+    MarkRpt = Version Id Lat Lon
+    Version = uint8{ 0 }
+    Id = uint8{ MarkRptId }
+    Key = [32]uint8
+    Lat = float64
+    Lon = float64
+    Ele = float64
 
-    newHeader = version type pubEncrKey pubAuthKey nameLen uidLen tokenLen name uid token
+The service obfuscates the keys of users with anonymous location by nulling
+the last 6 bytes. If a user has left the location of interest, the latitude
+will be > 90 degrees.
 
-    version = u8{ 1 }      // see above
-    type = u8{ NEW_PDU }
+An event/forum author or editor may mark the location of the event by writing
+the file `KEY/asn/mark.yaml` with this mapped float format.
 
-    pubEncrKey = [32]u8
-    pubAuthKey = [32]u8
+    Lat: 37.619002
+    Lon: -122.374843
+    Ele: 100
 
-    nameLen = u8{ name.Length() }
-    uidLen = u8{ uid.Length() }
-    tokenLen = u8{ token.Length() }
+* Neither `MarkReq` nor `MarkRpt` have data.
 
-    name = []u8
-    uid = []u8
-    token= []u8
+## Messaging ##
 
-If the device hasn't yet logged-in, the service creates a new account with the
-given `name` and `pubEncrkey` for FaceBook authenticated `uid`, `token` pairs.
-If FaceBook doesn't authenticate the user, the service ignores the socket for
-a random period before closing.
+After login, the service will report the user's most recent message and that
+of all their subscribed forums with this `HeadRpt`.
 
-If the device has already has logged-in with a valid`login` PDU, it may send
-one or more `new` PDUs to create events and forums. In this case, both `uid`
-and `token` are ignored.
+    HeadRpt = Version Id Key Head
+    Version = uint8{ 0 }
+    Id = uint8{ HeadRptId }
+    Key = [32]uint8
+    Head = [64]uint8
 
-* This PDU has no `data`.
+The service will continue sending these `HeadRpt`s for every change of the
+respective heads.
 
-### del ###
-The device sends this PDU to delete an event or forum. They may only delete
-those event in which they are a registered author or editor.
+The `Head` references a reserved file of the form:
 
-    delHeader = version type pubEncrKey
-    version = u8{ 1 }      // see above
-    type = u8{ DEL_PDU }
+    KEY/messages/HEAD
 
-    pubEncrKey = [32]u8
+Where for efficiency, the service may make `KEY` and `HEAD` hierarchical but
+transparently to the device.
 
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
+The device then reads the `Head` and antecedent messages with `FileReadReq`.
 
-### message ###
-This `message` header prefaces encrypted data sent by a user to one or more
-other users; by a user to a forum; and by the service delivering a user
-message or forum message.
+The device sends messages with this `MessageReq`.
 
-    messageHeader = version type recipientPubEncrKey toPubEncrKey fromPubEncrKey
+    MessageReq = Version Id Time To From
+    Version = uint8{ 0 }
+    Id = uint8{ MessageId }
+    Time = uint64
+    To = [32]uint8
+    From = [32]uint8
 
-    version = u8{ 1 }      // see above
-    type = u8{ MESSAGE_PDU }
+The origination `Time` is elapsed seconds since January 1, 1970 UTC.
 
-    time = u64
+`To` is the public encryption key recipient and `From` is the key of the
+originating user.
 
-    recipientPubEncrKey = [32]u8
-    toPubEncrKey = [32]u8
-    fromPubEncrKey = [32]u8
+The message `data` is encrypted with the `From` secret and `To` public keys
+with an APP specific nonce.  Its format is also APP specific and may likely
+contain a header identifying content type, etc.
 
-For messages sent to events or forums, both the header and data is encrypted
-with the public key of the forum. When sent from the user, the header has the
-forum public key for both `recipientPubEncrKey` and `toPubEncrKey`. Upon
-receipt, the service replicates these messages to each subscriber by
-re-encrypting the data with the subscriber's public key, reseting
-`recipientPubEncrKey` to the subscriber; then encrypting the message header
-with the subscriber key.
+The device may only send messages to forum or bridge users in a session
+logged-in as that user. Again, `From` must be the actual subscriber.
 
-The `message` includes its origination `time` in elapsed seconds since January
-1, 1970 UTC.
+For moderated forums, the service shunts `MessageReq` to the configured
+moderators (see Reserved Files). Upon approval, the moderator's APP should
+resend these `MessageReq`.
 
-The `data` format is APP specific; it likely includes a header identifying
-content type and recipients. It may also include information intended for
-other devices of the same user; for example, an APP may send a message to it's
-user to forward message flag changes to other devices.  In addition,
-event/forum messages may be routed through select moderators.
+The service stores user and forum destined messages in files within  the
+reserved `TO/asn/messages/` directory. These message files have this format.
 
-Messages are identified with a checksum of the concatenated decrypted header
-and encrypted data.
+    Message = Prev EMessageReq Edata
+    Prev = [64]uint8
+    Len = uint8
+    EMessageReq = []uint8
+    EData = []uint8
 
-    messageID = [64]u8{ sha512(messageHeader eData) }
+The message files are uniquely named with a 64 byte identifier encoded as 128
+hexadecimal characters. This identifier is calculated by a SHA512 sum of the
+file contents.
 
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
+`Prev` is the identifier of the previous message with all zeros representing
+the end.
 
-### truncate ###
-This PDU is sent by the device to `truncate` the identified message. It is
-then echo by the server to acknowledge truncation and notify the user's other
-devices to truncate cached copies.
+`EMessageReq` is the originating `MessageReq` re-encrypted with the service
+secret key and the `To` public key.
 
-    truncateHeader = version type messageID
+`EData` is the originally encrypted data included with the `MessageReq` that
+used the `From` secret key and `To` public key.
 
-    version = u8{ 1 }      // see above
-    type = u8{ TRUNCATE_PDU }
+So, once stored by the service, only `To` may decrypt these files.
 
-    messageID = [64]u8
+The service doesn't store messages sent to bridge users; instead, it forwards
+`MessageReq` to all active subscriber sessions with that header encrypted by
+the service secret and ephemeral public session keys.
 
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
+Like forums, the bridge may be moderated with the service shunting messages
+through the configured moderators.
 
-### pause ###
-The device sends a `pause` PDU to suspend the service message stream.
+## Session Management ##
 
-    pauseHeader = version type
-    version = u8{ 1 }      // see above
-    type = u8{ PAUSE_PDU }
+The device establishes a user session with this `LoginReq`.
 
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
+    LoginReq = Version Id Key Sig
+    Version = uint8{ 0 }
+    Id = uint8{ SessionLoginReqId }
+    Key = [32]uint8
+    Sig = [64]uint8{ ed25519(SecAuthKey, Key) }
 
-### resume ###
-The device sends a `pause` PDU to resume the service message stream.
+Where `Key` is the user's public encryption key and `Sig` is the user's
+signature of their own key that the service authenticates with the previously
+configured, user authentication key. The service prohibits login with forum or
+bridge keys.
 
-    resumeHeader = version type
+After achieving `Login` state with a positive acknowledgment, the device may
+suspend the session to maintain the connection in a low power state with a
+`PauseReq`; then continue with `ResumeReq`.
 
-    version = u8{ 1 }      // see above
-    type = u8{ RESUME_PDU }
+    PauseReq = Version Id
+    Version = uint8{ 0 }
+    Id = uint8{ SessionPauseReqId }
 
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
+    ResumeReq = Version Id
+    Version = uint8{ 0 }
+    Id = uint8{ SessionResumeReqId }
 
-### vouch ###
-The device sends this PDU to `vouch` for given user. To revoke an earlier
-voucher, the device sends this PDU with a nil `signature`.
+The service may instruct the device to terminate the active connection and
+reconnect at another URL with this `RedirectReq`.
 
-    vouchHeader = version type subjectPubEncrKey signature
+    RedirectReq = Version Id Url
+    Version = uint8{ 0 }
+    Id = uint8{ SessionRedirectReqId }
+    Url = []uint8
 
-    version = u8{ 1 }      // see above
-    type = u8{ VOUCH_PDU }
+Either device or service may terminate the session at anytime with this
+`QuitReq`.
 
-    subjectPubEncrKey = [32]u8
-    signature = [64]u8{ ed25519(userSecAuthKey, subjectPubEncrKey) }
+    QuitReq = Version Id Url
+    Version = uint8{ 0 }
+    Id = uint8{ SessionQuitReqId }
 
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
+* None of these session management PDUs have `data`.
 
-### vouchers ###
-The device sends this PDU with a zero `count` and empty `voucherPubEncrKeys`
-to request that the service respond with the public keys of users that have
-vouched for the given subject.
+## User Management ##
 
-    vouchersHeader = version type subjectPubEncrKey count voucherPubEncrKeys
+Before `Login`, the device may request an account for a new user with this
+`UserAddReq`.
 
-    version = u8{ 1 }      // see above
-    type = u8{ VOUCHERS_PDU }
+    AddReq = Version Id Key Auth NameLen UidLen TokenLen Name Uid Token
+    Version = uint8{ 1 }
+    Id = uint8{ UserAddReqId }
+    User = uint8		// { 0: actual, 1: forum, 2: bridge }
+    NameLen = uint8{ Name.Length() }
+    UidLen = uint8{ Uid.Length() }
+    TokenLen = uint8{ Token.Length() }
+    Key = [32]uint8		// Public Encryption Key
+    Auth = [32]uint8		// Public Authorization Key
+    Name = []uint8		// unique user name
+    FBuid = []uint8		// Facebook user identifier
+    FBtoken= []uint8		// Facebook authentication token
 
-    subjectPubEncrKey = [32]u8
+Upon receiving a positive acknowledgment, the device may proceed to session
+establishment with a `SessionLoginReq`.
 
-    count = u32
-    voucherPubEncrKeys = [count][32]u8
+After `Login` of an actual user, the device may send any of the following user
+administration requests. The device may also send the above `UsersAddReq` to
+create event/forum and bridge type users. Id addition, administrative users
+may add users by proxy.
 
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously logged-in.
+The device may delete any actual, forum, or bridge user in which they are the
+registered author (including themselves) with this `UserDelReq`.
 
-### searchByName, searchByUid, searchByKey ###
-The device sends these PDUs to search for users with the given name, FB user
-identifier, or public encryption key. The service responds with one or more
-`user` matching PDUs as limited by `maxUsers` for by-name and by-uid searches
-unless this maximum is zero.
+    DelUserReq = Version Id PubEncr
+    Version = uint8{ 0 }
+    Id = uint8{ UserDelReqId }
+    Key = [32]uint8
 
-    searchByNameHeader = version type nameLen name
+The device may search for users by public encryption key, service user name,
+and Facebook user identifier with this `UserLookupReq`.
 
-    version = u8{ 1 }      // see above
-    type = u8{ SEARCH_BY_NAME_PDU }
+    UserSearchReq = Version Id By Thing
+    Version = uint8{ 0 }
+    Id = uint8{ UserSearchReqId }
+    Max = uint16
+    By = uint8			// { 0: name, 2: FB uid }
+    Regex = []uint8
 
-    maxUsers = u16
+`Regex` is a [POSIX basic regular expression][5] matching the respective
+service user name or Facebook user identifier.
 
-    nameLen = u8{ name.Length() }
-    name = []u8
+The service acknowledges the search with data containing a key list of
+matching users.
 
+The device may vouch for another user by sending an authenticated signature of
+the subject user's public key with this `UserVouchReq`. To revoke an earlier
+voucher, the device resends this with a null signature.
 
-    searchByUidHeader = version type uidLen uid
+    UserVouchReq = Version Id PubEncr Signature
+    Version = uint8{ 0 }
+    Id = uint8{ UserVouchReq }
+    Key = [32]uint8
+    Signature = [64]uint8{ ed25519(secAuth, Key) }
 
-    version = u8{ 1 }      // see above
-    type = u8{ SEARCH_BY_UID_PDU }
+* None of these user management PDUs have `data`.
 
-    maxUsers = u16
-
-    uidLen = u8{ uid.Length() }
-    uid = []u8
-
-
-    searchByKeyHeader = version type pubEncrKey
-
-    version = u8{ 1 }      // see above
-    type = u8{ SEARCH_BY_KEY_PDU }
-
-    pubEncrKey = [32]u8
-
-**TBD** syntax for regex name search.
-
-* These PDUs have no `data`.
-* These PDUs are ignored by the service unless the device has previously
-  logged-in.
-
-### user ###
-The service responds to look-up requests with one or more `user` PDUs. The
-`count` indicates how many `user` PDUs will follow constituting the matching
-set for the requested look-up. The `count` of the last matching `user` is zero
-indicating end-of-match. If there are no matching users, `count`, `nameLen`
-and `uidLen` are all zero and the respective `name` and `uid` fields are
-empty.
-
-    userHeader = version type count pubEncrKey nameLen uidLen name uid
-
-    version = u8{ 1 }      // see above
-    type = u8{ USER_PDU }
-
-    count = u16
-
-    pubEncrKey = [32]u8
-
-    nameLen = u8{ name.Length() }
-    uidLen = u8{ uid.Length() }
-
-    name = []u8
-    uid = []u8
-
-* This PDU has no `data`.
-* This PDU is ignored by the service unless the device has previously logged-in.
-
-### read ###
-The device sends `read` to request the given user file. If the file is
-accessible, the service responds with the contents of this file in the PDU
-`data` encrypted with the `userPubEncrKey`; otherwise, it responds with a
-non-zero `error` code and description in the attached `data`.
-
-    readHeader = version type pubEncrKey error filenameLen filename
-
-    version = u8{ 1 }      // see above
-    type = u8{ READ_PDU }
-
-    error = u16
-
-    filenameLen = u8{ filename.Length() }
-    filename = []u8
-
-* `read` PDUs sent by the device should have empty `data`
-* `read` PDUs sent by the service have `data` encrypted as follows:
-   eData = crypto_box(data, dataNonce, userPubEncrKey, serviceSecEncrKey)
-* This PDU is ignored by the service unless the device has previously logged-in.
-
-### lock ###
-The device sends this PDU to lock and read given user file pending and
-intended `write`.  Note that there isn't an unlock, the device is expected to
-follow a lock with `write`.
-
-    lock = version type pubEncrKey error filenameLen filename
-
-    version = u8{ 1 }      // see above
-    type = u8{ LOCK_PDU }
-
-    error = u16
-
-    filenameLen = u8{ filename.Length() }
-    filename = []u8
-
-* `lock` PDUs sent by the device should have empty `data`
-* `lock` PDUs sent by the service have `data` encrypted as follows:
-   eData = crypto_box(data, dataNonce, userPubEncrKey, serviceSecEncrKey)
-* This PDU is ignored by the service unless the device has previously logged-in.    
-
-### write ###
-The device sends `write` to request that the attached encrypted `data` be
-written to given user file. If the file is writable, the service responds with
-a nil error PDU `data`; otherwise, it responds with a non-zero `error` code
-and description in the attached `data`.
-
-    write = version type pubEncrKey error filenameLen filename
-
-    version = u8{ 1 }      // see above
-    type = u8{ WRITE_PDU }
-
-    error = u16
-
-    filenameLen = u8{ filename.Length() }
-    filename = []u8
-
-* `filename` must be a valid Linux file name and **not** a path.
-* `write` PDUs sent by the device have `data` encrypted as follows:
-   eData = crypto_box(data, dataNonce, servicePubEncrKey, userSecEncrKey)
-* `write` PDUS sent by the service will have empty `data` unless there is a
-  non-zero `error`.
-* If the device had previously `lock`'d the file, the it's released by the
-  `write`.
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
-
-### remove ###
-The device sends this PDU to `remove` the given user file. The server responds
-with this PDU having a zero `error` code if successful; otherwiese, `error` in
-non-zero and `data` has the error description.
-
-    remove = version type pubEncrKey error filenameLen filename
-
-    version = u8{ 1 }      // see above
-    type = u8{ REMOVE_PDU }
-
-    error = u16
-
-    filenameLen = u8{ filename.Length() }
-    filename = []u8
-
-* `write` PDUS sent by the service will have empty `data` unless there is a
-  non-zero `error`
-* This PDU is ignored by the service unless the device has previously
-  logged-in.
-
-## Reserved Files ##
-
-The service reserves these file names to control file access and event
-replication: `author`, `editors`, `moderators`, and `subscribers`.
-
-The service writes the 32 byte public encryption key of the user that created
-the event or forum into the file named `author`.
-
-The `author` may assign one or more `editors` by adding their 32 by public
-encryption key to the so named file. The `author` and `editors` are the only
-users permitted to write files in the subject user directory.
-
-The `author` and `editors` may also assign one or more (including themselves)
-forum message `moderators`. With a non-empty `moderators` file, the service
-will route all messages sent by other users through the listed `moderators`.
-The service replicates all messages sent by a `moderator` to the listed
-`subscribers`. So for a moderator, the App should effectively echo such forum
-messages upon operator approval.
+# References #
+1. http://tools.ietf.org/html/rfc6455
+2. http://ed25519.cr.yp.to/
+3. http://nacl.cr.yp.to/box.html
+4. [NaCL "Security model"](http://nacl.cr.yp.to/box.html)
+5. http://en.wikibooks.org/wiki/Regular_Expressions/POSIX_Basic_Regular_Expressions
 
 ***
 &copy; 2014 Apptimist, Inc. All rights reserved.
