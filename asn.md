@@ -46,14 +46,14 @@ of a single element type. Successive bracket-bound number prefaces indicate
 multi-dimensional arrays. The number may be absent indicating a possible zero
 length array defined by the number in another component.  Examples:
 
-    to = [32]uint8
-    recipients = uint8
-    recipientList = [][32]uint8
+    owner = [32]uint8
+    namelen = uint8
+    name = []uint8
 
 A composite literal component appends a brace-bond list of composite elements.
 Examples:
 
-    version = uint8{1}
+    version = uint8{0}
     nonce = [24]uint8{ id seq }
     id = [64]uint8
     seq = uint64
@@ -71,18 +71,17 @@ member or administrator to multi-cast messages to all signed-in subscribers.
 
 ## WebSockets ##
 ASN runs through non-secure WebSockets described in [RFC-6455][1] . These are
-Web vs. TCP or UDP Sockets to provide the most flexible service through carrier
-proxy servers and enterprise firewalls. Also, these are non-secure HTTP sockets
-instead of the SSL secured HTTPS because ASN includes [ED25519][2] authenticated
-signatures and [NaCL][3]  authenticated encryption to provide a user assigned
-web-of-trust rather than a centralized certificate authority.
+Web vs. TCP or UDP Sockets to provide the most flexible service through
+carrier proxy servers and enterprise firewalls. Also, these are non-secure
+HTTP sockets instead of the SSL secured HTTPS because ASN includes
+[ED25519][2] authenticated signatures and [NaCL][3]  authenticated encryption
+to provide a user assigned web-of-trust rather than a centralized certificate
+authority.
 
 ### URI ###
-
     URI = "ws://" host [ ":" port ] path [ "?" query ]
 
-The initial `host` for all Apptimist services has this registered domain name
-format.
+The initial `host` for Apptimist services has this registered domain name.
 
     host = app ".apptimist.co"
 
@@ -90,524 +89,487 @@ Where `app` is the service name; for example, "`siren`".
 
 Some service features may direct the client to establish simultaneous
 WebSocket to another service engine; for example,
-* "`marks.siren.apptimist.co`"
-* "`bridge.siren.apptimist.co`"
-* "`fe1.siren.apptimist.co`"
-* "`fe2.siren.apptimist.co`"
+
+    sf.siren.apptimist.co
+    la.siren.apptimist.co
+    ny.siren.apptimist.co
+    bridge.siren.apptimist.co
 
 The `port` component is optional; the default is 80, but may be different for
 testing.
 
-The `path` component for most services is simply a slash prefaced,
-WebSocket protocol name; e.g. `/ws/asn`.
+The `path` component for most services is a slash prefaced, WebSocket protocol
+name; e.g. `/ws/asn`.
 
-The `query` component is a 64 digit, hexadecimal string representing the
-device ephemeral, 32-octet, public encryption key; e.g.
-"`key=1234567890123456789012345678901234567890123456789012345678901234`"
+The `query` component is unused and should be empty.
 
-#### Example ####
+For example,
 
-    ws://siren.apptimist.co/ws/asn?key=1234567890123456789012345678901234567890123456789012345678901234
+    ws://siren.apptimist.co/ws/asn
 
 ## Cryptography ##
-The ASN PDU has separately encrypted header and data components.
+ASN PDUs are encrypted in segments of up to 4096-bytes, including the 16-byte
+encryption overhead. Each segment is preceded by a uint16 length with the most
+significant bit used as a `More` flag that is set for each but the final PDU
+segment.
 
-The App uses an ephemeral key pair for the header component cryptography. These
-keys are generated before each connection with with the public key encoded
-within the GET request query string as described above. The App loads user's key
-pair stored within the IOS cloud for the data component cryptography. The App
-registers the user's public key with the `UserAddReq` described below.
+    segment = moreLen data
+    moreLen = uint16
+    data = [1..4096]uint8
 
-The service uses a proprietary key pair for the header component cryptography.
-It uses the keys of a service specific, administration user for the data
-component cryptography.
+After connecting, the device (the App or a mirroring server) sends its
+32-byte, ephemeral public key to the server. It uses this key along with the
+proprietary service key and nonce to encrypt the first `login` request PDU.
+The server's acknowledgment includes it's own ephemeral key and nonce to
+replace the initial proprietary key/nonce in subsequent segment encryption.
+
+The last two bytes of the initial proprietary, then following ephemeral nonce
+are sequential counters following the NaCL ["Security model"][4] whereby these
+increment by 2 for each segment sent between socket endpoints for the
+connection duration.  The side with the lexicographically smaller public key
+sends its first segment with 1, 3 on the second, 5 on the third, etc.;
+meanwhile, the lexicographically larger public key peer uses 2, 4, 6, etc.
 
 ## Format ##
-Each ASN PDU has this format:
+Each ASN PDU begins with version and identifier components.
 
-    pdu = headerLen dataLen eHeader eData
-
-    headerLen = uint32{ eHeader.Length() }
-    dataLen = uint32{ eData.Length() }
-
-    eHeader = crypto_box(header, headerNonce, rcvrPubEncrKey, sndrSecEncrKey)
-
-    header = []uint8{ version id ... }
-    vsersion = uint8{ 0 }
+    pdu = version id
+    version = uint8{ 0 }
     id = uint8
 
-    headerNonce = [24]uint8{ headerNoncePrefix seq }
-    headerNoncePrefix = [22]uint8{ dataNonce[:22] }
-    seq = uint16
+There are two types of PDUs, requests and objects.
 
-    rcvrPubEncrKey = [32]uint8
-    sndrSecEncrKey = [32]uint8
+Along with the acknowledgment, each request has an 8-byte requester following
+the version, id pair.
 
-    eData = crypto_box(data, dataNonce, toPubEncrKey, fromSecEncrKey)
-    dataNonce = [24]uint8{ ed25519(serviceSecAuthKey, servicePubEncrKey)[:24] }
+    requester = [8]uint8
 
-    toPubEncrKey = [32]uint8
-    fromSecEncrKey = [32]uint8
+Each object has this 8-byte magic string following the version, id pair.
 
-Every header begins with `version` and `id` components. As indicated, the
-most recent `version` is 0. Future versions will be numeric increments and,
-when possible, may be backwards compatible.
+    magic = [8]uint8{"asnmagic"}
 
-The `seq` component of the `headerNonce` is a sequential counter following the
-NaCL ["Security model"][4] whereby this increments by 2 for each PDU sent
-between socket endpoints for the connection duration.  The side with the
-lexicographically smaller public key sends its first PDU with a 1 `seq`, 3 on
-the second PDU, 5 on the third, etc.; meanwhile, the lexicographically larger
-public key peer uses `seq` 2, 4, 6, etc.
-
-The `headerNoncePrefix` is the first 22 bytes of `dataNonce`.
-
-The `dataNonce` is the first 24 bytes of the service self signed public
-encryption key.
+We describe the remaining object and request formats below.
 
 ## States ##
 The ASN protocol has very few states.
 
-1. `Open`, prior to an acknowledged `LoginReq`
-2. `Logged-in`, after an acknowledged `LoginReq`
-3. `Suspended`, after an acknowledged `PauseReq` and before `ResumeReq`
-4. `Quitting`, awaiting `QuitReq` acknowledgment
-5. `Close`, received `QuitReq` acknowledgment and terminated connection
+1. `opened`, prior to an acknowledged `login` or subsequent `resume`
+2. `provisional`, after first `login`, prior to upload of authentication key
+3. `established`, after verified `login`
+4. `suspended`, after an acknowledged `pause` and before `resume`
+5. `quitting`, awaiting `quit` acknowledgment
+6. `closed`, received `quit` acknowledgment and terminated connection
 
 
 ## Identifiers ##
 To support flexible protocol evolution, the App and Service use lookup
 tables to map PDU identifier and error codes. Here are the most recent
 identifiers:
-<!-- go test -v -run Ids github.com/apptimistco/asn/pdu -->
-                              Version
-                                 0
-       0.                RawId   0
-       1.                AckId   1
-       2.               EchoId   2
-       3.        FileLockReqId   3
-       4.        FileReadReqId   4
-       5.      FileRemoveReqId   5
-       6.       FileWriteReqId   6
-       7.            HeadRptId   7
-       8.            MarkReqId   8
-       9.            MarkRptId   9
-      10.         MessageReqId  11
-      11.    SessionLoginReqId  12
-      12.    SessionPauseReqId  13
-      13.     SessionQuitReqId  14
-      14. SessionRedirectReqId  15
-      15.   SessionResumeReqId  16
-      16.           TraceReqId  17
-      17.         UserAddReqId  18
-      18.         UserDelReqId  19
-      19.      UserSearchReqId  20
-      20.       UserVouchReqId  21
+<!-- go test -v -run Ids github.com/apptimistco/asn -->
+
+                         Version
+                            0
+       1.        AckReqId   1
+       2.       ExecReqId   2
+       3.      LoginReqId   3
+       4.      PauseReqId   4
+       5.       QuitReqId   5
+       6.   RedirectReqId   6
+       7.     ResumeReqId   7
+       8.          BlobId   8
+       9.         IndexId   9
 
 ## Acknowledgment ##
+Each request sent by either device or service shall be acknowledged with
+this `AckReq`.
 
-Each `Req` suffixed request sent by either device or service shall be
-acknowledged with this `Ack`.
+    ack = version id requester result data
+    version = uint8{ 0 }
+    id = uint8{ AckReqId }
+    requester = [8]uint8
+    result = uint8
+    data = []uint8
 
-    Ack = Version Id Req Err Desc
-    Version = uint8{ 0 }
-    Id = uint8{ AckId }
-    Req = uint8
-    Err = uint8
+Where `result` is one of these codes.
+<!-- go test -v -run Errs github.com/apptimistco/asn -->
 
-Where `Req` is the identifier of the request and `Err` is one of these error
-codes.
-<!-- go test -v -run Errs github.com/apptimistco/asn/pdu -->
-                              Version
-                                 0
-       0.              Success   0
-       1.            DeniedErr   1
-       2.           FailureErr   2
-       3.          IlFormatErr   3
-       4.      IncompatibleErr   4
-       5.          RedirectErr   5
-       6.             ShortErr   6
-       7.        UnexpectedErr   7
-       8.           UnknownErr   8
-       9.       UnsupportedErr   9
+                         Version
+                            0
+       0.         Success   0
+       1.       DeniedErr   1
+       2.      FailureErr   2
+       3.     IlFormatErr   3
+       4. IncompatibleErr   4
+       5.     RedirectErr   5
+       6.        ShortErr   6
+       7.   UnexpectedErr   7
+       8.      UnknownErr   8
+       9.  UnsupportedErr   9
 
-A negative acknowledgment shall include a UTF-8 character string in the data
-portion of the PDU which describes the error. For `RedirectErr`, this the
+A negative acknowledgment shall include a UTF-8 character string describing
+the error as the `data` component except for `RedirectErr` where it's the
 redirected URL for the requested service.
 
-The positive acknowledgment of `FileLockReq` and `FileReadReq` shall include
-data containing the requested data.
-
-The `UserSearchReq` acknowledgment includes data containing a list of the user
-keys whose name or `FBuid` matches the given regular expression.
-
-## Echo ##
-
-The device or service may send an `Echo` request in ether `Open` or `Login`
-states to diagnose and benchmark connectivity. The `Echo` receiver shall
-return an `Echo` with a non-zero `Reply` along with the original data.
-
-    Echo = Version Id Reply
-    Version = uint8{ 0 }
-    Id = uint8{ EchoId }
-    Reply = uint8
-
-## Files ##
-
-The device manipulates files with these requests.
-
-    LockReq = Version Id Name
-    Version = uint8{ 0 }
-    Id = uint8{ FileLockReqId }
-    Name = []uint8
-
-    ReadReq = Version Id Name
-    Version = uint8{ 0 }
-    Id = uint8{ FileReadReqId }
-    Name = []uint8
-
-    WriteReq = Version Id Name
-    Version = uint8{ 0 }
-    Id = uint8{ FileWriteReqId }
-    Name = []uint8
-
-The successful `LockReq` and `ReadReq` acknowledgment includes the requested
-file contents as `data`. This `data` is encrypted with the secret key of the
-service and the public key of the requesting user.  Similarly, the data`
-attached to the `WriteReq`is encrypted with the secret user and public service
-keys.  All or portions of the encrypted data may itself be encrypted as
-explained in the *Messaging* below.
-
-The `LockReq` also prevents another user or session from writing until a
-`WriteReq` to the named file from the locking session.
-
-### Reserved Files ###
-
-The service stores the following reserved files in directories named
-`KEY/asn`; where `KEY` is the 64 symbol, hexadecimal encoded string
-representing the subject user's public key that uniquely identifies them
-within the service.
-
-    KEY/asn:
-        author
-        editors
-        mark.yaml
-        messages/head
-        moderators
-        subscribers
-        subscriptions
-        user.yaml
-
-For efficiency, the service may make `KEY` hierarchical like GIT objects but
-this is beyond to scope of this document.
-
-Before acknowledging `UserAddReq`, the service records the relevant
-components, along with originating author, in the reserved file named
-`user.yaml`.  Only administrave users may write this file thereafter.
-The file contains mapped strings like these.
-
-    Name: "jane doe"
-    FBuid: "jane.doe@facebook.com"
-    FBtoken: "..."
-    Auth: "..."
-
-If the `UserAddReq` was issued within an established session (see below) the
-service records the 32 byte public of that session user in the reservd file
-named `author`.
-
-The author may assign one or more editors by adding their user keys to the
-reserved `editors` file.
-
-Only the author and editors are permitted to write files in the subject user
-directory.
-
-The author and editors may also assign one or more (including themselves) as
-forum and bridge moderators by ading their keys to the reserved `moderators`
-file.
-
-The author and editors subscribe users to a forum or bridge by adding the
-subscriber's key to the `subscribers` file. The service reflects changes to
-this file through the subscriber's `subscriptions` file. So, an author or
-editor adding `U` user to `F` forums `F/subscribers` will result in the
-service adding `F` to `U/subscriptions`.  The service prevents any other
-modification of `subscriptions`.
-
-The author and editors may statically mark a forum or bridge location by
-writing a `mark.yaml` file with this mapped float format.
-
-    Lat: 37.619002
-    Lon: -122.374843
-    Ele: 100
-
-Where `Lat[itude]` and `Lon[gitude]` are in degrees and `Ele[vation]` is in
-meters.
-
-The service records the keys of checked-in users of a forum or bridge in the
-`attendance` file.
-
-The service stores all non-bridge messages in files named by the SHA512
-identifier within the reserved sub-directory named `messages/`. The service
-writes the 64 byte identifier of the most recent message to the file
-`messages/head`. The device may truncate messages with an empty data
-`WriteReq` although the service will maintain it's identifier of the previous
-message.
-
-The service lists the keys of all validate vouching users in the `references`
-file. This may not be modfied in anyother way other than with the `VouchReq`.
-
-The service prevents addition of any other files to the reserved `KEY/asn`
-directory.
-
-
-## Location ##
-
-The device registers it's location or scan for nearby users with this
-`MarkReq`.
-
-    MarkReq = Version Id Lat Lon Z Cmd
-    Version = uint8{ 0 }
-    Id = uint8{ MarkReqId }
-    Lat = float64	// Lat[itude] in degrees
-    Lon = float64	// Lon[gitude] in degrees
-    Z = float64		// Elevation or Radius in meters
-    Cmd = uint8
-
-Possible `Cmd` values:
-
-    0	// Set user's anonymous location
-    1   // Unset user's anonymous location
-    2	// Check-in user's public location
-    3	// Check-out user's public location
-    4	// Scan nearby users
-    5	// Stop report of nearby users
-
-After acknowledging a scan `MarkReq`, the service will continually send this
-`MarkRpt` of users within or leaving the location of interest.
-
-    MarkRpt = Version Id Lat Lon
-    Version = uint8{ 0 }
-    Id = uint8{ MarkRptId }
-    Key = [32]uint8
-    Lat = float64
-    Lon = float64
-    Ele = float64
-
-The service obfuscates the keys of users with anonymous location by nulling
-the last 6 bytes. If a user has left the location of interest, the latitude
-will be > 90 degrees.
-
-An event/forum author or editor may mark the location of the event by writing
-the file `KEY/asn/mark.yaml` with this mapped float format.
-
-    Lat: 37.619002
-    Lon: -122.374843
-    Ele: 100
-
-* Neither `MarkReq` nor `MarkRpt` have data.
-
-## Messaging ##
-
-After login, the service will report the user's most recent message and that
-of all their subscribed forums with this `HeadRpt`.
-
-    HeadRpt = Version Id Key Head
-    Version = uint8{ 0 }
-    Id = uint8{ HeadRptId }
-    Key = [32]uint8
-    Head = [64]uint8
-
-The service will continue sending these `HeadRpt`s for every change of the
-respective heads.
-
-The `Head` references a reserved file of the form:
-
-    KEY/messages/HEAD
-
-Where for efficiency, the service may make `KEY` and `HEAD` hierarchical but
-transparently to the device.
-
-The device then reads the `Head` and antecedent messages with `FileReadReq`.
-
-The device sends messages with this `MessageReq`.
-
-    MessageReq = Version Id Time To From
-    Version = uint8{ 0 }
-    Id = uint8{ MessageId }
-    Time = uint64
-    To = [32]uint8
-    From = [32]uint8
-
-The origination `Time` is elapsed seconds since January 1, 1970 UTC.
-
-`To` is the public encryption key recipient and `From` is the key of the
-originating user.
-
-The message `data` is encrypted with the `From` secret and `To` public keys
-with an APP specific nonce.  Its format is also APP specific and may likely
-contain a header identifying content type, etc.
-
-The device may only send messages to forum or bridge users in a session
-logged-in as that user. Again, `From` must be the actual subscriber.
-
-For moderated forums, the service shunts `MessageReq` to the configured
-moderators (see Reserved Files). Upon approval, the moderator's APP should
-resend these `MessageReq`.
-
-The service stores user and forum destined messages in files within  the
-reserved `TO/asn/messages/` directory. These message files have this format.
-
-    Message = Prev EMessageReq Edata
-    Prev = [64]uint8
-    Len = uint8
-    EMessageReq = []uint8
-    EData = []uint8
-
-The message files are uniquely named with a 64 byte identifier encoded as 128
-hexadecimal characters. This identifier is calculated by a SHA512 sum of the
-file contents.
-
-`Prev` is the identifier of the previous message with all zeros representing
-the end.
-
-`EMessageReq` is the originating `MessageReq` re-encrypted with the service
-secret key and the `To` public key.
-
-`EData` is the originally encrypted data included with the `MessageReq` that
-used the `From` secret key and `To` public key.
-
-So, once stored by the service, only `To` may decrypt these files.
-
-The service doesn't store messages sent to bridge users; instead, it forwards
-`MessageReq` to all active subscriber sessions with that header encrypted by
-the service secret and ephemeral public session keys.
-
-Like forums, the bridge may be moderated with the service shunting messages
-through the configured moderators.
+The `data` component of positive acknowledgments, if any, is described below.
 
 ## Session Management ##
+The device establishes a user session with this `login` request immediately
+after sending its ephemeral key.
 
-The device establishes a user session with this `LoginReq`.
+    login = version id requester user sig
+    version = uint8{ 0 }
+    id = uint8{ AckReqId }
+    requester = [8]uint8
+    user = [8]uint8
+    sig = uint8
 
-    LoginReq = Version Id Key Sig
-    Version = uint8{ 0 }
-    Id = uint8{ SessionLoginReqId }
-    Key = [32]uint8
-    Sig = [64]uint8{ ed25519(SecAuthKey, Key) }
+Where `user` is the user's public (not ephemeral) encryption key and `sig` is
+the user's signature of their own key. If this is the user's first login, the
+session is in `provisional` state until the device uploads the user's
+authentication key (see below). Once available, the service verifies the
+signed user key before setting the `established` state.  The service prohibits
+login with forum or bridge keys.
 
-Where `Key` is the user's public encryption key and `Sig` is the user's
-signature of their own key that the service authenticates with the previously
-configured, user authentication key. The service prohibits login with forum or
-bridge keys.
+After session establishment the device may suspend to maintain the connection
+in a low power state with this `pause` request; then continue with the
+`resume` request.
 
-After achieving `Login` state with a positive acknowledgment, the device may
-suspend the session to maintain the connection in a low power state with a
-`PauseReq`; then continue with `ResumeReq`.
+    pause = version id requester
+    version = uint8{ 0 }
+    id = uint8{ PauseReqId }
+    requester = [8]uint8
 
-    PauseReq = Version Id
-    Version = uint8{ 0 }
-    Id = uint8{ SessionPauseReqId }
-
-    ResumeReq = Version Id
-    Version = uint8{ 0 }
-    Id = uint8{ SessionResumeReqId }
+    resume = version id requester
+    version = uint8{ 0 }
+    id = uint8{ ResumeReqId }
+    requester = [8]uint8
 
 The service may instruct the device to terminate the active connection and
-reconnect at another URL with this `RedirectReq`.
+reconnect (at possibly another URL) with this `redirect` request. With an
+empty `url` component, the device should reconnect to the same server after
+waiting 10 or more seconds.
 
-    RedirectReq = Version Id Url
+    redirect = version id requester url
     Version = uint8{ 0 }
-    Id = uint8{ SessionRedirectReqId }
-    Url = []uint8
+    id = uint8{ RedirectReqId }
+    requester = [8]uint8
+    url = []uint8
 
-Either device or service may terminate the session at anytime with this
-`QuitReq`.
+Either device or service may terminate the session at anytime with this `quit`
+request.
 
-    QuitReq = Version Id Url
-    Version = uint8{ 0 }
-    Id = uint8{ SessionQuitReqId }
+    quit = version id requester
+    version = uint8{ 0 }
+    id = uint8{ QuitReqId }
+    requester = [8]uint8
 
-* None of these session management PDUs have `data`.
+## Exec ##
+This `exec` request is a command line style interface to several services.
 
-## User Management ##
+    exec = version id requester argv
+    version = uint8{ 0 }
+    id = uint8{ ReqAckId }
+    requester = [8]uint8
+    argv = []string
 
-Before `Login`, the device may request an account for a new user with this
-`UserAddReq`.
+Where `argv` is a null separated list of ASCII command arguments with the
+optional `--` separating command input. All `exec` requests receive an
+acknowledgment, in addition, some may also have associated objects sent to the
+requester.
 
-    AddReq = Version Id Key Auth NameLen UidLen TokenLen Name Uid Token
-    Version = uint8{ 1 }
-    Id = uint8{ UserAddReqId }
-    User = uint8		// { 0: actual, 1: forum, 2: bridge }
-    NameLen = uint8{ Name.Length() }
-    UidLen = uint8{ Uid.Length() }
-    TokenLen = uint8{ Token.Length() }
-    Key = [32]uint8		// Public Encryption Key
-    Auth = [32]uint8		// Public Authorization Key
-    Name = []uint8		// unique user name
-    FBuid = []uint8		// Facebook user identifier
-    FBtoken= []uint8		// Facebook authentication token
+### add ###
+    add [USER/][INDEX][/NAME] -- DATA
 
-Upon receiving a positive acknowledgment, the device may proceed to session
-establishment with a `SessionLoginReq`.
+The device may make an `add` request in the `provisional` state to upload and
+reference the user's authentication key within the ASN index with this command
+where AUTH is the login user's 32-byte, public, ED25519 authentication key or
+its ASCII, 64-digit, hexadecimal character representation.
 
-After `Login` of an actual user, the device may send any of the following user
-administration requests. The device may also send the above `UsersAddReq` to
-create event/forum and bridge type users. Id addition, administrative users
-may add users by proxy.
+    add asn/auth -- AUTH
 
-The device may delete any actual, forum, or bridge user in which they are the
-registered author (including themselves) with this `UserDelReq`.
 
-    DelUserReq = Version Id PubEncr
-    Version = uint8{ 0 }
-    Id = uint8{ UserDelReqId }
-    Key = [32]uint8
+The device may also make this request in the `established` state to upload any
+named blob within it associate index, or a message in it's implicit index like
+this.
 
-The device may search for users by public encryption key, service user name,
-and Facebook user identifier with this `UserLookupReq`.
+    add USER -- MESSAGE
 
-    UserSearchReq = Version Id By Thing
-    Version = uint8{ 0 }
-    Id = uint8{ UserSearchReqId }
-    Max = uint16
-    By = uint8			// { 0: name, 2: FB uid }
-    Regex = []uint8
+In this case, a message object is created from MESSAGE and it's SHA sum
+identifier is added to both USER and login's message index.
 
-`Regex` is a [POSIX basic regular expression][5] matching the respective
-service user name or Facebook user identifier.
+### approve ###
+    approve SHA...
 
-The service acknowledges the search with data containing a key list of
-matching users.
+A moderator's device may make an `approve` request in the `established` state
+for the server to add the blobs with the given SHA sums to the respective
+indices of the moderated bridge or forum.
 
-The device may vouch for another user by sending an authenticated signature of
-the subject user's public key with this `UserVouchReq`. To revoke an earlier
-voucher, the device resends this with a null signature.
+### cat ###
+    cat [USER/]INDEX/PATTERN
 
-    UserVouchReq = Version Id PubEncr Signature
-    Version = uint8{ 0 }
-    Id = uint8{ UserVouchReqId }
-    Key = [32]uint8
-    Signature = [64]uint8{ ed25519(secAuth, Key) }
+The device may make a `cat` request in the `established` state for the server
+to acknowledge with the decoded blob with the matching name within the given
+index of the login or specified USER.
 
-* None of these user management PDUs have `data`.
+### echo ###
 
-## PDU Trace ##
+    echo [STRING]...
 
-The service shall implement a PDU facility accessible to administrators with
-this `TraceReq`.
+The device may make an `echo` request in `open`, `provisional` or
+`established` states.  The data of the server's positive acknowledgment has
+the joined, space separated list of arguments without trailing newline.
 
-    TraceReq = Version Id Cmd Arg
-    Version = uint8{ 0 }
-    Id = uint8{ TraceReqId }
-    Cmd = uint8		// 0 - Filter, 1 - Unfilter, 2 - Flush, 3 - Resize
-    Arg = uint8
+### fetch ###
 
-Where,
+    fetch [USER[/]][INDEX]</PATTERN|@EPOCH>...
+    fetch SHA...
 
-    Cmd
-      0 Filter PDU with the Id given in `Arg`.
-      1 Unfilter PDU with the Id given in `Arg`.
-      2 Flush trace ring into data of acknowlegment.
-      3 Resize ring to `Arg` entries.
+The device may make a `fetch` request in the `established` state to have the
+server send matching blobs after the request acknowledgment.
+
+This requests messages since EPOCH.
+
+    fetch @EPOCH
+
+This requests messages to the ASCII public key, USER since EPOCH.
+
+    fetch USER/msg@EPOCH
+
+This requests the blob containing USER's ASN authentication key.
+
+    fetch USER/asn/auth
+
+This requests blobs with the given SHA sums.
+
+    fetch SHA...
+
+### ls ###
+    ls [USER/][INDEX][/PATTERN|@EPOCH]...
+
+The device may make an `ls` request in the `established` state for the server
+to acknowledge with a newline separated list of matching names within the
+given index of the login or specified USER. Each line contains space
+separated, SHA, NAME pairs.
+
+    ls asn/auth*
+
+    0190fb33 auth
+    15139977 author
+
+The device may also request the list of messages since a given EPOCH.
+
+    ls @2147483647
+
+    0190fb33
+    15139977
+
+### new-event, new-bridge ###
+The device may make an `new-event` or `new-bridge` request in the
+`established` state for the server to create a new event or bridge user with
+random keys. The acknowledgment has a string like this:
+
+    pub:
+      encr: 5fb2d5d9552c47f02d4cfc1f3938abd4c5f685b050501e53f6bf545c05982e33
+      auth: 9d30799789fb96a2d71855168d8573d2ce6f367e6a0ef7da7bcee72ab31dcc13
+    sec:
+      encr: f6ce8a1025b3537e3a82ab5461fa7a2db51a2729abe66cdce82b54a573de011d
+      auth: 60eabf950dc926735d086f419b2571de6e95c4e1d1efe179590b1acc8ffee39c9d30799789fb96a2d71855168d8573d2ce6f367e6a0ef7da7bcee72ab31dcc13
+
+Before sending the acknowledgment the server creates these blobs and
+associated `asn` index entries.
+
+    asn/author
+    asn/auth
+    asn/type
+
+It's up to the App to securely store and distribute the secrete encryption and
+authentication keys.
+
+### rm ###
+    rm SHA...
+
+The device may make an `rm` request in the `established` state for the server
+to remove the identified objects and references within associated indices.  It
+may only remove objects that is owned or authored by the login user. The
+server doesn't immediately remove these objects, instead it merely propagates
+flags for later, independent removal by garbage collectors on each mirror.
+
+### scan ###
+    scan LATITUDE LONGITUDE RANGE
+
+The device may make a `scan` request in the `established` state to have the
+server forward MARK objects within RANGE meters of LATITUDE and LONGITUDE
+degrees.  A subsequent `scan` with zero RANGE discontinues forwarding of all
+MARK objects. These also stop with `pause` request so the device must issue
+another `scan` command to continue mark reports after `resume`.
+
+Like all `exec` commands, these arguments must be ASCII; for example:
+
+    scan 37.619002 -122.374843 100
+
+### trace ###
+    trace [COMMAND [ARG]]
+
+The device may make a `trace` request in the `established` state to retrieve
+or adjust the server's PDU trace. The default, "flush" command results in the
+text PDU trace returned in the data component of the positive acknowledgment.
+The other trace commands return success or error.
+
+    trace [flush]
+    trace filter ID...
+    trace unfilter ID...
+    trace resize RINGSIZE
+
+The default RINGSIZE is 32.
+
+### vouch ###
+    vouch USER SIG
+
+The device may make a `vouch` request in the `established` state for the login
+user to vouch for the identity on another by signing their key. `USER` may be
+abbreviated but must be an ASCII representation of the subject's public key.
+`SIG` must be the full, 128-character ASCII representation of login's ED25519
+authenticated signing of the subject's key.
+
+## Objects ##
+Whereas requests result in some sort of acknowledged action, an object conveys
+unacknowledged information. After the magic string, every object has this
+header.
+
+    object = random owner author epoch
+    random = [32]uint8	// random data
+    owner = [32]uint8	// public encryption key
+    author = [32]uint8	// "
+    epoch = uint64	// Unix epoch (nanoseconds)
+
+Random data is used to differentiate objects with identical content.
+
+### Blobs ###
+The data of `blob` objects, with the exception of ASN control blobs, is opaque
+to the server.  It may be fetched and read by anyone so the App is generally
+responsible for security, compression, content identification and
+interpretation. Once written, blobs may not be modified other than being
+flagged for later removal during garbage collection. Following the common
+object header, blobs have the associated name preceding the actual blob data.
+
+    blob = version id magic random owner author epoch index name data
+    version = uint8{ 0 }
+    id = uint8{ BlobObjId }
+    magic = [8]uint8{"asnmagic"}
+    random = [32]uint8	// random data
+    owner = [32]uint8	// public encryption key
+    author = [32]uint8	// "
+    epoch = uint64	// Unix epoch (nanoseconds)
+    namelen = uint8
+    name = []uint8
+    data = []uint8
+
+The service records the blob SHA sum in the index taken from the blob `name`
+component up to the first forward slash '/' character. For example, the blob
+named `asn/auth` has it SHA sum added to the `asn` index.
+
+### Index ###
+An `index` object lists the SHA sum references of the owner's blobs with
+matching named preface.
+
+    index = version id magic random owner author epoch index name data
+    version = uint8{ 0 }
+    id = uint8{ IndexObjId }
+    magic = [8]uint8{"asnmagic"}
+    random = [32]uint8	// random data
+    owner = [32]uint8	// public encryption key
+    author = [32]uint8	// "
+    epoch = uint64	// Unix epoch (nanoseconds)
+    namelen = uint8
+    name = []uint8
+    shas = [][32]unint8
+
+Each user has an implicit index for messages in addition to one named `asn`.
+Any other indices are App specific and opaque to the service.
+
+These aren't ordinarily used directly by App devices; instead, they are used
+by the server to complete these `exec` commands: `add`, `cat`, `ls`, and `rm`.
+
+### Mark ###
+A `mark` is simply a `blob` object with data identifying the user location.
+
+    mark = version id magic random owner author epoch lat lon ele
+    version = uint8{ 0 }
+    id = uint8{ BlobObjId }
+    magic = [8]uint8{"asnmagic"}
+    random = [32]uint8	// random data
+    owner = [32]uint8	// public encryption key
+    author = [32]uint8	// "
+    epoch = uint64	// Unix epoch (nanoseconds)
+    namelen = uint8{8}
+    name = []uint8{"asn/mark"}
+    lat = float64	// latitude (degrees)
+    lon = float64	// longitude (")
+    ele = float64	// elevation (meters)
+
+To check-in at an event, the device sends a `mark` with the event's key as
+`owner` and it's login user key as `author`. Outside of the event, `owner`
+must equal `author`. To remain anonymous (gray pin), the device uses the
+session ephemeral keys instead of the user key. To clear an earlier registered
+location, the device sends a mark `lat` > 91 degrees.
+
+The server forwards all received or recorded marks within the user's `scan`
+range.
+
+### Message ###
+A `message` is simply a `blob` with an empty name and App specific data.
+
+    message = version id magic random owner author epoch data
+    version = uint8{ 0 }
+    id = uint8{ MessageObjId }
+    magic = [8]uint8{"asnmagic"}
+    random = [32]uint8	// random data
+    owner = [32]uint8	// public encryption key
+    author = [32]uint8	// "
+    epoch = uint64	// BigEndian Unix epoch nanoseconds
+    namelen = uint8{0}
+    data = []uint8
+
+## ASN Control ##
+The service loads and stores these named blobs reference by the `asn` index.
+
+    asn/auth
+    asn/author
+    asn/editors
+    asn/mark
+    asn/moderators
+    asn/references
+    asn/type
+
+At the `provisional` login, `new-event` or `new-bridge` request the service
+creates a blob named `asn/author` that contains the requester, binary public
+key.  It also records the respective string `actual`, `event`, or `bridge` as
+data in a blob named `asn/type`.
+
+The author may assign one or more editors by adding their user keys to a blob
+named `asn/editors`.
+
+Only the author and editors are permitted to make blobs in anything other than
+the empty named message index.
+
+The author and editors may assign one or more (including themselves) as forum
+and bridge moderators by adding their keys to a blob referenced by
+`asn/moderators`. Any messages for the forum or bridge are added to the
+`moderators'` message index. Any moderator may then issue the `exec approve`
+request for the server to add the respective SHA to the forum or forward to
+the bridge.
+
+The author and editors may statically mark a forum or bridge location by
+sending a `mark` object with `owner` and `author` set to subject along with
+its latitude, longitude and elevation. The service will store this object
+named `asn/mark` and forward to all user's filtered by their `scan` range.
+
+The service lists the keys of all validated, vouching users in a blob named
+`asn/references`. This may not be modified in any other way other than with
+the `exec vouch` request.
+
+The service doesn't recognize any other blobs named with the `asn/` index
+prefix.
 
 # References #
 1. http://tools.ietf.org/html/rfc6455
