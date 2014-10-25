@@ -295,8 +295,8 @@ LATITUDE and LONGITUDE are UTF-8 decimal encoding of floating point degrees.
     approve SHA...
 
 A moderator's device may exec this command in the `established` state for the
-server to create, process, and distribute a blob named `asn/approved` with
-the expanded SHA argument list as described [here](#permission).
+server to create, process, and distribute a blob named `asn/approvals/SUM`
+with the expanded SHA argument list as described [here](#permission).
 
 ### auth ###
     auth [USER] AUTH
@@ -526,8 +526,8 @@ The author and editors may assign one or more (including themselves) as forum
 and bridge moderators by adding their keys to the blob named `asn/moderators`.
 Forum or bridge messages are added to the moderators' message list. Any
 moderator may then exec the `approve` command for the server to create,
-process and distribute an `asn/approved` blob that results in the listed blobs
-being linked to the forums message list and sent to any `established`
+process and distribute an `asn/approvals/SUM` blob that results in the listed
+blobs being linked to the forums message list and sent to any `established`
 subscribers.
 
 To summarize, a device is permitted to add a blob to an ASN repository, either
