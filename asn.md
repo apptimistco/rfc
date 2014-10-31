@@ -391,14 +391,24 @@ Or list blobs named with a given prefix that are newer than epoch.
     asn/auth
 
 ### mark ###
-    mark [USER] LATITUDE LONGITUDE ELEVATION
+    mark LATITUDE LONGITUDE [USER]
+    mark 7?PLACE [USER]
 
 The device may exec this command in the `established` state for the server to
 create, process and distribute a [Mark](#mark) blob with LOGIN as the default
 USER.
 
+The alternate form is the UTF-8 `7` character followed by an App significant
+hexadecimal character then the key associated with an event or place. Use this
+form to set LOGIN's location relative to the PLACE or EVENT. App's may use the
+intermediate character to encode an ETA.
+
+Permitted sessions may exec this command to mark location of events and places
+with the USER argument.  The device may also make an anonymous mark using the
+session ephemeral key as USER.
+
 ### newuser ###
-    newuser <"actual"|"bridge"|"forum">
+    newuser <"actual"|"bridge"|"forum"|"place">
 
 The device may exec this command in the `established` state to create an
 actual, bridge or forum user with random keys. The acknowledgment has a string
@@ -572,25 +582,30 @@ vouching blob.
 ### Location ###
 A location mark is a blob named `asn/mark` with this CONTENT.
 
-    lat = float64	// latitude (degrees)
+    mark = user <flag eta place> | <lat lon>
+
+    user = [8]uint8	// first 8 bytes of USER
+
+    flag = uint4{7}	// high nibble of first byte
+    eta = uint4		// low nibble of first byte
+    place = [7]uint8	// first 7 bytes of USER, PLACE, or EVENT key
+
+    lat = int32		// latitude (degree millionths)
     lon = float64	// longitude (")
-    ele = float64	// elevation (meters)
 
-To check-in at an event, the device sends a mark with the event's key as OWNER
-and it's login key as AUTHOR. Outside of the event, OWNER must equal AUTHOR.
-To remain anonymous (gray pin), the device may use the session ephemeral keys
-instead of the LOGIN as AUTHOR. To clear an earlier registered location, the
-device sends a mark with `lat` > 91 degrees.
+To check-in or note that it is in transit to an event the device exec's the
+mark command for the server to create, process and distribute the first form
+of this blob that has the first 7 bytes of the event/forum key as `place` and
+non-zero `eta` if in transit.  The service distributes these blobs to all
+permitted sessions. Also, a newly established session may retrieve earlier
+marks with this exec command.
 
-The server forwards all received or recorded marks within the user's `scan`
-range.
+    cat SERVER/asn/mark[@EPOCH]
 
-The author and editors may statically mark a forum or bridge location by exec
-of the `mark` command for the server to create, process, distribute and record
-a `asn/mark` blob.
-
-Actual user marks are not saved by the server but are distributed to all
-established users through their scan filter.
+The service notes that a session has terminated or suspended by distributing a
+mark blob with the associated user key (login or ephemeral) as `place` and a
+zero `eta`.  The device may also exec the mark command with it's own `place`
+key to stop it's location report.
 
 ### Removal ###
 A `removal` is a blob named `asn/removals/` containing a list of 64-byte
