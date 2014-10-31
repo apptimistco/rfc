@@ -271,23 +271,30 @@ optional `-\0` separating command input. All `exec` requests receive an
 acknowledgment. In addition, some may have associated objects sent to the
 requester.
 
-In each of the following exec commands, USER and LOGIN are the UTF-8,
-hexadecimal encoding of the respective subject and initiating user's public
-encryption keys that may be abbreviated to whatever uniquely identifies them.
-GIT experience suggests that 8 characters may be sufficient.
+In each of the following exec commands, SERVICE, EPHEMERAL, LOGIN, USER and
+PLACE are the UTF-8, hexadecimal encoding of the respective public encryption
+keys that may be abbreviated to whatever uniquely identifies them.  GIT
+experience suggests that 8 characters may be sufficient.
+
+BLOB is one of these ASN object references:
+
+    BLOB = <FILE|SUM|USER[@EPOCH]|[USER]@EPOCH|[USER/]NAME[@EPOCH]>
+
+The default USER is LOGIN and the wild card USER is SERVICE meaning for all
+users.
+
+FILE is a local file system name used only in testing.
 
 NAME may have forward slash ("/") hierarchy. If the base component of the name
 is hexadecimal, as with messages, it may be abbreviated like USER.
 Alternatively, the base component may use shell `*` and `?` expansion
 characters to match repository names (e.g. `asn/hel*` for `asn/hello`)
 
-SHA is a UTF-8 hexadecimal encoding of the 64-byte SHA512 sum of the
+SUM is a UTF-8 hexadecimal encoding of the 64-byte SHA512 sum of the
 referenced blob file. This may be abbreviated to as few as 8 characters.
 
 EPOCH is a UTF-8 decimal encoding of the 64-bit integer nanoseconds since
 the Unix epoch (00:00:00.000000 Jan 1, 1970)
-
-ELEVATION and RANGE are UTF-8 decimal encoding of the 64-bit integer meters.
 
 LATITUDE and LONGITUDE are UTF-8 decimal encoding of floating point degrees.
 
@@ -300,7 +307,7 @@ with the expanded SUM arguments as described in the [permission](#permission)
 section.
 
 ### auth ###
-    auth [USER] AUTH
+    auth AUTH [USER]
 
 The device must exec this command in the `provisional` state for the server to
 create, process, and distribute a blob named "asn/auth" containing the user's
@@ -315,11 +322,11 @@ create, process, and distribute any permitted named or derived named [blob](#blo
 with the given content.
 
 ### cat ###
-    cat <FILE|SHA|[USER/]NAME>
+    cat BLOB...
 
 The device may exec this command in the `established` state for the server to
 acknowledge with the contents (without header) of the named or referenced
-blob.
+blobs.
 
 ### clone ###
     clone [URL|MIRROR][@EPOCH]
@@ -338,7 +345,7 @@ states.  The data of the server's positive acknowledgment has the joined,
 space separated list of arguments suffixed by a trailing newline.
 
 ### fetch ###
-    fetch <SHA|USER[@EPOCH]|@EPOCH|[USER/]NAME[@EPOCH]>...
+    fetch BLOB...
 
 An administrator or mirror may exec this command in the `established` state
 for the server to send all matching objects before its acknowledgment.
@@ -357,7 +364,7 @@ This requests the blob containing USER's ASN authentication key.
 
 This requests blobs with the given SHA sums.
 
-    fetch SHA...
+    fetch SUM...
 
 ### gc ###
     gc [@EPOCH]
@@ -366,7 +373,7 @@ An administrator may exec this command in the `established` state for the
 server to purge older or all blobs flagged for deletion.
 
 ### ls ###
-    ls <[USER]@EPOCH|[USER/]NAME[@EPOCH]>...
+    ls BLOB...
 
 The device may exec this command in the `established` state for the server to
 acknowledge with a newline separated list of matching link names.
@@ -431,13 +438,13 @@ It's up to the App to securely store and distribute the secrete encryption and
 authentication keys.
 
 ### objdump ###
-    objdump <FILE|SHA|[USER:]NAME>
+    objdump BLOB...
 
 The device may exec this command in the `established` state for the server to
 acknowledge with a decoded header of the matching blob.
 
 ### rm ###
-    rm <FILE|SHA|USER|[USER:]NAME[@EPOCH]...
+    rm BLOB...
 
 The device may exec this command in the `established` state for the server to
 create, process and distribute a [Removal](#removal) blob.  While processing,
@@ -600,7 +607,7 @@ non-zero `eta` if in transit.  The service distributes these blobs to all
 permitted sessions. Also, a newly established session may retrieve earlier
 marks with this exec command.
 
-    cat SERVER/asn/mark[@EPOCH]
+    cat SERVICE/asn/mark[@EPOCH]
 
 The service notes that a session has terminated or suspended by distributing a
 mark blob with the associated user key (login or ephemeral) as `place` and a
