@@ -307,7 +307,7 @@ with the expanded SUM arguments as described in the [permission](#permission)
 section.
 
 ### auth ###
-    auth AUTH [USER]
+    auth [-u USER] AUTH
 
 The device must exec this command in the `provisional` state for the server to
 create, process, and distribute a blob named "asn/auth" containing the user's
@@ -398,8 +398,8 @@ Or list blobs named with a given prefix that are newer than epoch.
     asn/auth
 
 ### mark ###
-    mark LATITUDE LONGITUDE [USER]
-    mark 7?PLACE [USER]
+    mark [-u USER] <LATITUDE LONGITUDE>
+    mark [-u USER] <7?PLACE>
 
 The device may exec this command in the `established` state for the server to
 create, process and distribute a [Mark](#mark) blob with LOGIN as the default
@@ -505,7 +505,7 @@ control service.
 
 [New User](#new-user): `asn/auth`, `asn/author`, `asn/user`
 [Permission](#permission): `asn/editors`, `asn/moderators`, `asn/subscribers`
-[Location](#location): `asn/mark`
+[Mark](#mark): `asn/mark`
 [Message](#message): `asn/messages/`
 [Removal](#removal): `asn/removals/`
 [Authentication](#authentication): `asn/references/`, `asn/vouchers/`
@@ -577,7 +577,7 @@ vouching blob.
     USER:asn/references/LOGIN
     LOGIN:asn/vouchers/USER
 
-### Location ###
+### Mark ###
 A location mark is a blob named `asn/mark` with this CONTENT.
 
     mark = user <flag eta place> | <lat lon>
