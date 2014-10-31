@@ -292,11 +292,12 @@ ELEVATION and RANGE are UTF-8 decimal encoding of the 64-bit integer meters.
 LATITUDE and LONGITUDE are UTF-8 decimal encoding of floating point degrees.
 
 ### approve ###
-    approve SHA...
+    approve SUM...
 
 A moderator's device may exec this command in the `established` state for the
 server to create, process, and distribute a blob named `asn/approvals/SUM`
-with the expanded SHA argument list as described [here](#permission).
+with the expanded SUM arguments as described in the [permission](#permission)
+section.
 
 ### auth ###
     auth [USER] AUTH
@@ -515,32 +516,40 @@ The server consults blobs named `asn/editors`, `asn/moderators`, and
 `asn/subscribers` to determine those permitted to change, approve, and receive
 forum or bridge content.
 
-The author may assign one or more editors by adding user keys to a blob named
-`asn/editors`.
+The `asn/author` may assign one or more editors by adding user keys to a blob
+named `asn/editors`.
 
-Only the author and editors are permitted to make blobs with the subject owner
-named anything other than the derived names ending in "/" or the empty name
-implying `asn/messages/`.
+All LOGIN users are permitted to make empty named blobs for another owner.
+Unless moderated, these are linked as OWNER/asn/messages and distributed to
+any OWNER or `asn/subscribers` sessions.
 
-The author and editors may assign one or more (including themselves) as forum
-and bridge moderators by adding their keys to the blob named `asn/moderators`.
-Forum or bridge messages are added to the moderators' message list. Any
-moderator may then exec the `approve` command for the server to create,
-process and distribute an `asn/approvals/SUM` blob that results in the listed
-blobs being linked to the forums message list and sent to any `established`
-subscribers.
+Only the owner, `asn/author` and `asn/editors` are permitted to make
+non-empty named blobs.
+
+The `asn/author` and `asn/editors` may assign one or more (including
+themselves) as forum and bridge moderators by adding their keys to the blob
+named `asn/moderators`.  Forum or bridge messages are added to the moderators'
+message list. Any moderator may then exec the `approve` command for the server
+to create, process and distribute an `asn/approvals/SUM` blob that results in
+the listed blobs being linked to the forums message list and sent to any
+subscriber sessions.
 
 To summarize, a device is permitted to add a blob to an ASN repository, either
 by direct send or `exec blob`, if:
 
-    LOGIN == ADMIN || LOGIN == SERVICE ||
-    ((AUTHOR == LOGIN || AUTHOR == EPHEMERAL) &&
-     (NAME == "asn/mark" || NAME == "" || NAME == "*/")) ||
-    (AUTHOR == LOGIN && (OWNER == AUTHOR || EDITORS{AUTHOR})
+    LOGIN == ADMIN ||
+    LOGIN == SERVICE ||
+    OWNER == LOGIN ||
+    ASN_AUTHOR == LOGIN ||
+    ASN_EDITORS{AUTHOR} ||
+    NAME == ""
 
-A device receives newly added blobs if:
+A session receives newly added blobs if:
 
-    OWNER == LOGIN || SUBSCRIBERS{LOGIN} || (NAME == "asn/mark" && RANGE{MARK})
+    LOGIN == SERVICE ||
+    OWNER == LOGIN ||
+    (NAME == "" && (ASN_SUBSCRIBERS{LOGIN} || ASN_MODERATORS{LOGIN})) ||
+    (NAME == "asn/mark" && (!ASN_SUBSCRIBERS || ASN_SUBSCRIBERS{LOGIN}))
     
 ### Message ###
 A `message` is an empty named blob (e.g. `namelen` == 0) and App specific
