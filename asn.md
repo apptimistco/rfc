@@ -453,15 +453,6 @@ these for later, independent purge by the garbage collector of each mirror.
 The removal flags may be reverted by removing the generated removal object
 (`asn/removals/SUM`) before garbage collection.
 
-### scan ###
-    scan LATITUDE LONGITUDE RANGE
-
-The device may exec this command in the `established` state to have the server
-forward marks within RANGE meters of LATITUDE and LONGITUDE degrees.  A
-subsequent `scan` with zero RANGE discontinues forwarding of all MARK objects.
-These stop at `pause` so the device must issue another `scan` command to
-continue location reports after `resume`.
-
 ### trace ###
     trace [COMMAND [ARG]]
 
@@ -682,7 +673,8 @@ After login to its nearest server, the App may retrieve objects of any user.
 It may also retrieve messages of the logged-in user and any of their
 subscribed forums. However, to send and receive bridge messages the App must
 establish another session with the assigned server. Similarly, the App must
-establish sessions to the assigned server to scan for users in another area.
+establish sessions to the assigned server to receive marks of users in another
+area.
 
 ## References ##
 <a name="1">1. [RFC-6455](http://tools.ietf.org/html/rfc6455)</a>
