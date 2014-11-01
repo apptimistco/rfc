@@ -204,7 +204,12 @@ A negative acknowledgment shall include a UTF-8 character string describing
 the error as the `data` component except for `RedirectErr` where it's the
 redirected URL for the requested service.
 
-The `data` component of positive acknowledgments, if any, is described below.
+The `data` component of positive acknowledgments to these `exec` commands that
+create blobs has the 128 hexadecimal character encoding of the blob sum.
+
+    approve, auth, blob, mark, rm, vouch
+
+All other command and PDU acknowledgment is described below.
 
 ## Session Management ##
 The device establishes a user session with this `login` request immediately
